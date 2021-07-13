@@ -8,6 +8,8 @@ echo "************************************";
 # Настройки экспорта:
 # путь резервного копирования
 EXPORT_PATH="/tmp/dump/daily";
+# Дополнтнльный каталог по пути экспорта
+EXPORT_SUBDIR="";
 # путь к mysqldump
 DUMPCMD="/usr/bin/mongodump";
 # Количество бэкапов в стеке. При "0" ротация выключена
@@ -193,18 +195,23 @@ for index in ${!args[*]}; do
         ;;
         "-rotate") BACKUPS_CNT="20";
         ;;
-        "-subdir") 
-            createSubdir $EXPORT_PATH "${args[$index+1]}";
-            if (( $? == 1 )); then
-                EXPORT_PATH=$EXPORT_PATH"/${args[$index+1]}";
-            else
-                echo "Subdir creation failed!";
-            fi;
+        "-subdir") EXPORT_SUBDIR="${args[$index+1]}";
         ;;
         "-n") BACKUPS_CNT="${args[$index+1]}";
         ;;
     esac;   
 done;
+
+# Создаем подкаталог в пути экспорта (если нужно)
+if [ -z "$EXPORT_SUBDIR" ]; then
+    createSubdir $EXPORT_PATH $EXPORT_SUBDIR;
+    if (( $? == 1 )); then
+       EXPORT_PATH="${EXPORT_PATH}/${EXPORT_SUBDIR}";
+    else
+       echo "Subdir creation failed!";
+    fi;
+fi;
+
  
 # Проверяем правильность введенных данных
 # если не указана БД ( можно дополнить проверкой и на имя пользователя) 
