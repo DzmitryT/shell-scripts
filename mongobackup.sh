@@ -240,7 +240,7 @@ fi;
 
 TMP_EXPORT_PATH="";
 # Создаем иерархию каталогов экспорта (если нужно)
-if [ -z "$EXPORT_SUBDIR" ]; then
+if [ ! -z "$EXPORT_SUBDIR" ]; then
       TMP_EXPORT_PATH="${EXPORT_PREFIX}/${EXPORT_SUBDIR}";
 else
       TMP_EXPORT_PATH="${EXPORT_PREFIX}";
