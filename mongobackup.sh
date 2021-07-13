@@ -102,7 +102,7 @@ function createSubdir() {
 # $2 - имя файла на удаленном сервере
 function uploadFTP() {
 # -n option disables auto-logon
-# -i option disable promts fo multiple transfers
+# -i option disables prompts for multiple transfers
 FNAME="$1";
 echo $FNAME;
 ftp -ni $FTPHOST <<EOF
