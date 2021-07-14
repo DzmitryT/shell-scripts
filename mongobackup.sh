@@ -6,12 +6,12 @@ echo "************************************";
 echo "** MongoDB Database Backup Script **";
 echo "************************************";
 # Настройки экспорта:
+# путь к mongodump
+DUMPCMD="/usr/bin/mongodump";
 # путь резервного копирования
-EXPORT_PATH="/tmp/dump/daily";
+EXPORT_PREFIX="/tmp/dump/daily";
 # Дополнтнльный каталог по пути экспорта
 EXPORT_SUBDIR="";
-# путь к mysqldump
-DUMPCMD="/usr/bin/mongodump";
 # Количество бэкапов в стеке. При "0" ротация выключена
 BACKUPS_CNT="0";
 # Получаем текущую дату в переменную
@@ -74,17 +74,17 @@ function delOlderFile() {
     rm $1"/"$olderfile;
 }
  
-# Функция создания субдиректории в пути экспорта
-# вызывается, если задан параметр -subdir
-# На вход принимает 2 параметра, возвращает 0 или 1
-function createSubdir() {
+# Функция создания пути экспорта, если он не сушествует
+# В качестве параметра принимает путь,
+# возвращает 1 при удачном завершении
+function createBackupDir() {
 # Если параметр пустой - ничего не делаем
-    if [ ! -z  "$2" ]; then
+    if [ ! -z  "$1" ]; then
         # Проверяем - существует ли директория
         # При необходимости - создаем
-        if [ ! -d "$1/$2" ]; then
+        if [ ! -d "$1" ]; then
         # Типа аналог try-catch - весь вывод в /dev/null и ловим код ошибки
-            mkdir "$1/$2" 2>/dev/null;
+            mkdir -p "$1" 2>/dev/null;
             if (( $? == 0 )); then
                 return 1;
             else
@@ -144,39 +144,54 @@ function dumpDB() {
     fi;
 
     # Формируем имя по принципу хост_база
-    BAKNAME=$(hostname)"_"$DBNAME"_";
+    BACKUP_NAME="$(hostname)_${DBNAME}_";
  
     # Ротация бэкапов
     if [ $BACKUPS_CNT -gt 0 ]; then
         # Функции в bash - не совсем функции. 
         # Комманда return возвращает не результат выполнения, а "код ошибки"
         # Поэтому, чтобы получить искомое число перехватываем STDERROR
-        countFilesByMask $EXPORT_PATH "^"$BAKNAME$DATE_REGEXP$FEXT"$"
+        countFilesByMask $EXPORT_PREFIX "^"$BACKUP_NAME$DATE_REGEXP$FEXT"$"
         funcres="$?";
      
         # Проверяем, не вышли ли мы за размер стэка бэкапов
         if [ $funcres -ge $BACKUPS_CNT ]; then
-            delOlderFile $EXPORT_PATH "^"$BAKNAME$DATE_REGEXP$FEXT"$" $DATE_REGEXP
+            delOlderFile $EXPORT_PREFIX "^"$BACKUP_NAME$DATE_REGEXP$FEXT"$" $DATE_REGEXP
         fi;
     fi;
 
     # Монго экспортирует базу в директорию, т.к. дамп содержит несколько файлов
-    OUTPUT=$EXPORT_PATH/$BAKNAME$TODAY;
+    OUTPUT="${EXPORT_PREFIX}/${BACKUP_NAME}${TODAY}";
 
     # Делаем дамп базы данных.
-    eval "$DUMPCMD --out $OUTPUT";
+    eval "${DUMPCMD} --out ${OUTPUT}";
 
     # Архивируем и удаляем директорию
     if [ -d "$OUTPUT" ] && [ ! -z "$(ls $OUTPUT)" ]; then
         # Чтобы tar не строил в архиве полное дерево каталогов
-        eval "tar $TARCMD $OUTPUT$FEXT -C $EXPORT_PATH $BAKNAME$TODAY  && rm -rf $OUTPUT";
+        eval "tar $TARCMD $OUTPUT$FEXT -C $EXPORT_PREFIX $BACKUP_NAME$TODAY  && rm -rf $OUTPUT";
         # Заливаем на FTP
         if [ -f $OUTPUT$FEXT ] && [ "$FTPBACKUP" = "true" ]; then
-            uploadFTP $OUTPUT$FEXT $BAKNAME$TODAY$FEXT;
+            uploadFTP $OUTPUT$FEXT $BACKUP_NAME$TODAY$FEXT;
         fi;
     fi;    
 }
- 
+
+function printUsage() {
+  echo "Right usage syntax: $0 -d dbname";
+  echo "  -u username";
+  echo "  -p password";
+  echo "  [--prefix to override default backup location]";
+  echo "  [--subdir to perform backup saving within [location]/[subdir] path]";
+  echo "  [-z to create tarball with gzip compression]";
+  echo "  [-r or --rotate to enable rotation with default stack size of 20 files]";
+  echo "  [-n for custom backup stack size]";
+  echo "  [-f to enable FTP uploading]";
+  echo "  [--ftp-host to override FTP hostname]";
+  echo "  [--ftp-user to override FTP login]";
+  echo "  [--ftp-pass to override FTP password]";
+}
+
  
 # Обрабатываем входные параметры скрипта
 args=("$@")
@@ -193,42 +208,49 @@ for index in ${!args[*]}; do
         ;;
         "-f") FTPBACKUP=true;
         ;;
-        "-rotate") BACKUPS_CNT="20";
+        "--ftp-user") FTPUSER="${args[$index+1]}";
         ;;
-        "-subdir") EXPORT_SUBDIR="${args[$index+1]}";
+        "--ftp-pass") FTPPASS="${args[$index+1]}";
+        ;;
+        "--ftp-host") FTPHOST="${args[$index+1]}";
+        ;;
+        "--rotate" | "-r") BACKUPS_CNT="20";
+        ;;
+        "--prefix") EXPORT_PREFIX="${args[$index+1]}";
+        ;;
+        "--subdir") EXPORT_SUBDIR="${args[$index+1]}";
         ;;
         "-n") BACKUPS_CNT="${args[$index+1]}";
+        ;;
+        "-h") printUsage; exit 0;
         ;;
     esac;   
 done;
 
-# Создаем подкаталог в пути экспорта (если нужно)
-if [ -z "$EXPORT_SUBDIR" ]; then
-    createSubdir $EXPORT_PATH $EXPORT_SUBDIR;
-    if (( $? == 1 )); then
-       EXPORT_PATH="${EXPORT_PATH}/${EXPORT_SUBDIR}";
-    else
-       echo "Subdir creation failed!";
-    fi;
+
+# Проверяем правильность введенных данных
+# если не указана БД ( можно дополнить проверкой и на имя пользователя)
+# выдаем предупреждение и завершаем работу
+if [ -z "${DBNAME}" ]; then
+    echo "[WARN]: Empty parameter!";
+    echo "- Database name expected!";
+    printUsage;
+    exit 1;
 fi;
 
- 
-# Проверяем правильность введенных данных
-# если не указана БД ( можно дополнить проверкой и на имя пользователя) 
-# выдаем предупреждение и завершаем работу
-# [ -z "$DBUSER" ] || 
-# echo "- Username can not be empty!";
+TMP_EXPORT_PATH="";
+# Создаем иерархию каталогов экспорта (если нужно)
+if [ ! -z "$EXPORT_SUBDIR" ]; then
+      TMP_EXPORT_PATH="${EXPORT_PREFIX}/${EXPORT_SUBDIR}";
+else
+      TMP_EXPORT_PATH="${EXPORT_PREFIX}";
+fi;
 
-if [ -z "$DBNAME" ]; then
-     echo "[WARN]: Empty parameter!";
-     echo "- Database name expected!";
-
-        echo "Right usage syntax: $0 -d dbname -u username -p password";
-        echo "[-z to enable gzip archivation] [-n for custom backup stack size]";
-        echo "[-f to enable FTP uploading]";
-        echo "[-subdir to perform backup saving within "$EXPORT_PATH"/[subdir] path]";
-        echo "[-rotate to enable rotation with default stack size of 20 files]";
-    exit 1;
+createBackupDir "${TMP_EXPORT_PATH}";
+if (( $? == 1 )); then
+  EXPORT_PREFIX="${TMP_EXPORT_PATH}";
+else
+    echo "Destination directory '${TMP_EXPORT_PATH}' was not created!";
 fi;
 
 # Запускаем бэкап
