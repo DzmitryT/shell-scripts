@@ -119,20 +119,19 @@ function createRemoteBackupDir() {
 # $1 - local file full path
 # $2 - remote file name
 function processFTPBackup() {
-    if [ -z "$1" ] || [ -z "$2" ]; then
-        exit 1;
-    fi;
-      # Заливаем на FTP
-    if [ -f "$1" ] && [ "$FTPBACKUP" = "true" ]; then
-      createRemoteBackupDir
-      if (($? == 1)); then
-        uploadFTP $1 $2
-      else
-        exit 1;
-      fi;
-    fi;
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    exit 1
+  fi
+  # Заливаем на FTP
+  if [ -f "$1" ] && [ "$FTPBACKUP" = "true" ]; then
+    createRemoteBackupDir
+    if (($? == 1)); then
+      uploadViaCURL $1 $2
+    else
+      exit 1
+    fi
+  fi
 }
-
 
 # Заливаем файл на FTP. Функция принимает 2 параметра, т.к. некоторые FTP-сервера
 # (например vsftpd) не умеют вычленять имя по последнему слэшу
@@ -150,6 +149,17 @@ put $1 $2
 bye
 EOF
 }
+
+# $1 - полный путь к локальному файлу
+# $2 - имя файла на удаленном сервере
+function uploadViaCURL() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    exit 1
+  fi
+  FTPCMD="${CURL_CMD} ftp://${FTPHOST}/${FTPDIR}/$2"
+  eval "${FTPCMD} -T $1 --user ${FTPUSER}:${FTPPASS}"
+}
+
 
 # Скажем так, это своеобразный метод "для перегрузки",
 # т.е. можно поменять реализацию и экспортировать хоть MySQL, хоть Oracle
@@ -203,7 +213,7 @@ function dumpDB() {
   if [ -d "$OUTPUT" ] && [ ! -z "$(ls $OUTPUT)" ]; then
     # Чтобы tar не строил в архиве полное дерево каталогов
     eval "tar $TARCMD $OUTPUT$FEXT -C $EXPORT_PREFIX $BACKUP_NAME$TODAY  && rm -rf $OUTPUT"
-    processFTPBackup "${OUTPUT}${FEXT}" "${BACKUP_NAME}${TODAY}${FEXT}";
+    processFTPBackup "${OUTPUT}${FEXT}" "${BACKUP_NAME}${TODAY}${FEXT}"
   fi
 }
 
