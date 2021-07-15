@@ -156,9 +156,13 @@ function countFilesByMask() {
 # На вход принимает регулярное выражение для grep
 function removeOlderLocalFile() {
   local LINES=$(find "${EXPORT_PREFIX}" -maxdepth 1 -type f -printf "%f\n" | grep -E "$1")
-  findOlderFileInList "${LINES}";
+  local OLD_FILE=$(findOlderFileInList "${LINES}");
   # Получили имя самого старого файла. Можно удалять.
-  #rm $1"/"$olderfile
+  if [ -n "${OLD_FILE}" ] && [ -f "${EXPORT_PREFIX}/${OLD_FILE}" ]; then
+    rm "${EXPORT_PREFIX}/${OLD_FILE}"
+  else
+     echo "[WARN]: file does not exists ${EXPORT_PREFIX}/${OLD_FILE}!"
+  fi;
 }
 
 # Функция создания пути экспорта, если он не сушествует
@@ -313,7 +317,9 @@ for index in ${!args[*]}; do
     FTP_BACKUPS_CNT="${args[$index + 1]}"
     ;;
   "--rotate" | "-r")
-    BACKUPS_CNT="20"
+      if [ $BACKUPS_CNT -eq 0 ]; then
+        BACKUPS_CNT="20";
+      fi;
     ;;
   "--prefix")
     EXPORT_PREFIX="${args[$index + 1]}"
