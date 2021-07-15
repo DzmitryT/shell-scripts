@@ -23,15 +23,17 @@ DATE_REGEXP="[0-9]\{2\}.[0-9]\{2\}.[0-9]\{4\}"
 
 # Настройки для FTP:
 # нужно ли бэкап заливать на FTP
-FTPBACKUP="false"
+FTP_ENABLED="false"
 # хост
-FTPHOST="127.0.0.1"
+FTP_HOST="127.0.0.1"
 # логин
-FTPUSER="user"
+FTP_USER="user"
 # пароль
-FTPPASS="pass"
+FTP_PASS="pass"
 # директория на хосте, в данном случае имя машины, на которой запускаем бэкап
-FTPDIR="$(hostname)"
+FTP_DIR="$(hostname)"
+# Количество бэкапов в стеке. При "0" ротация выключена
+FTP_BACKUPS_CNT="0"
 
 # Функция подсчета количества файлов по заданной маске
 # На вход принимает 2 параметра, в контексте функции
@@ -101,7 +103,7 @@ function createLocalBackupDir() {
 }
 
 function createRemoteBackupDir() {
-  FTPCMD="${CURL_CMD} --user ${FTPUSER}:${FTPPASS} ftp://${FTPHOST}/${FTPDIR}/"
+  FTPCMD="${CURL_CMD} --user ${FTP_USER}:${FTP_PASS} ftp://${FTP_HOST}/${FTP_DIR}/"
   eval "${FTPCMD} --head 2>/dev/null"
   # Directory not exists
   if [ $? -ne 0 ]; then
@@ -121,7 +123,7 @@ function processFTPBackup() {
     exit 1
   fi
   # Заливаем на FTP
-  if [ -f "$1" ] && [ "$FTPBACKUP" = "true" ]; then
+  if [ -f "$1" ] && [ "$FTP_ENABLED" = "true" ]; then
     createRemoteBackupDir
     if (($? == 0)); then
       uploadViaCURL "$1" "$2"
@@ -138,11 +140,11 @@ function processFTPBackup() {
 function uploadFTP() {
   # -n option disables auto-logon
   # -i option disables prompts for multiple transfers
-  ftp -ni $FTPHOST <<EOF
-user $FTPUSER $FTPPASS
+  ftp -ni $FTP_HOST <<EOF
+user $FTP_USER $FTP_PASS
 binary
 passive
-cd $FTPDIR
+cd $FTP_DIR
 put $1 $2
 bye
 EOF
@@ -154,8 +156,8 @@ function uploadViaCURL() {
   if [ -z "$1" ] || [ -z "$2" ]; then
     exit 1
   fi
-  FTPCMD="${CURL_CMD} ftp://${FTPHOST}/${FTPDIR}/$2"
-  eval "${FTPCMD} -T $1 --user ${FTPUSER}:${FTPPASS}"
+  FTPCMD="${CURL_CMD} ftp://${FTP_HOST}/${FTP_DIR}/$2"
+  eval "${FTPCMD} -T $1 --user ${FTP_USER}:${FTP_PASS}"
 }
 
 
@@ -249,19 +251,22 @@ for index in ${!args[*]}; do
     DBZIP="true"
     ;;
   "-f")
-    FTPBACKUP="true"
+    FTP_ENABLED="true"
     ;;
   "--ftp-user")
-    FTPUSER="${args[$index + 1]}"
+    FTP_USER="${args[$index + 1]}"
     ;;
   "--ftp-pass")
-    FTPPASS="${args[$index + 1]}"
+    FTP_PASS="${args[$index + 1]}"
     ;;
   "--ftp-host")
-    FTPHOST="${args[$index + 1]}"
+    FTP_HOST="${args[$index + 1]}"
     ;;
   "--ftp-prefix")
-    FTPDIR="${args[$index + 1]}"
+    FTP_DIR="${args[$index + 1]}"
+    ;;
+  "--ftp-rotate")
+    FTP_BACKUPS_CNT="${args[$index + 1]}"
     ;;
   "--rotate" | "-r")
     BACKUPS_CNT="20"
