@@ -19,7 +19,7 @@ BACKUPS_CNT="0"
 # Получаем текущую дату в переменную
 TODAY="$(date +%d.%m.%Y)"
 # Формат даты в регекспе
-DATE_REGEXP="[0-9]\{2\}.[0-9]\{2\}.[0-9]\{4\}"
+DATE_REGEXP='[0-9]{2}.[0-9]{2}.[0-9]{4}'
 
 # Настройки для FTP:
 # нужно ли бэкап заливать на FTP
@@ -39,8 +39,44 @@ FTP_BACKUPS_CNT="0"
 # Если вдруг захочется сделать авторизацию через .netrc останется
 # добавить один IF
 function ftpCommandPrefix() {
-    echo "${CURL_CMD} --user ${FTP_USER}:${FTP_PASS} ftp://${FTP_HOST}/${FTP_DIR}/";
+  echo "${CURL_CMD} --user ${FTP_USER}:${FTP_PASS} ftp://${FTP_HOST}/${FTP_DIR}/"
 }
+
+# Получаем список файлов в каталоге на FTP-сервере
+function ftpGetFilesList() {
+  FTP_CMD="$(ftpCommandPrefix) --list-only --silent"
+  eval "${FTP_CMD}"
+}
+
+# $1 - регулярное выражение для филтрации файлов
+function ftpCountFiles() {
+  ftpGetFilesList | grep -c "$1"
+}
+
+# Заливаем файл на FTP. Функция принимает 2 параметра, т.к. некоторые FTP-сервера
+# (например vsftpd) не хотят вычленять имя по последнему слэшу
+# $1 - полный путь к локальному файлу
+# $2 - имя файла на удаленном сервере
+function ftpUploadFile() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    exit 1
+  fi
+
+  FTP_CMD="$(ftpCommandPrefix)"
+  eval "${FTP_CMD}/$2  -T $1"
+}
+
+# Удаляем файл на FTP-сервере. Используется при ротации бэкапов
+# $1 - имя файла на удаленном сервере
+function ftpRemoveFile() {
+  FTP_CMD="$(ftpCommandPrefix) --silent -Q '-DELE $1'"
+  eval "${FTP_CMD}"
+  if [ $? -ne 0 ]; then
+    return 1;
+  fi;
+    return 0;
+}
+
 
 # Функция подсчета количества файлов по заданной маске
 # На вход принимает 2 параметра, в контексте функции
@@ -116,7 +152,7 @@ function createRemoteBackupDir() {
   if [ $? -ne 0 ]; then
     # Create directory
     eval "${FTP_CMD} --ftp-create-dirs 2>/dev/null"
-    if [ $? -ne  0 ]; then
+    if [ $? -ne 0 ]; then
       return 1
     fi
   fi
@@ -133,41 +169,12 @@ function processFTPBackup() {
   if [ -f "$1" ] && [ "$FTP_ENABLED" = "true" ]; then
     createRemoteBackupDir
     if (($? == 0)); then
-      uploadViaCURL "$1" "$2"
+      ftpUploadFile "$1" "$2"
     else
       exit 1
     fi
   fi
 }
-
-# Заливаем файл на FTP. Функция принимает 2 параметра, т.к. некоторые FTP-сервера
-# (например vsftpd) не умеют вычленять имя по последнему слэшу
-# $1 - полный путь к локальному файлу
-# $2 - имя файла на удаленном сервере
-function uploadFTP() {
-  # -n option disables auto-logon
-  # -i option disables prompts for multiple transfers
-  ftp -ni $FTP_HOST <<EOF
-user $FTP_USER $FTP_PASS
-binary
-passive
-cd $FTP_DIR
-put $1 $2
-bye
-EOF
-}
-
-# $1 - полный путь к локальному файлу
-# $2 - имя файла на удаленном сервере
-function uploadViaCURL() {
-  if [ -z "$1" ] || [ -z "$2" ]; then
-    exit 1
-  fi
-
-  FTP_CMD="$(ftpCommandPrefix)"
-  eval "${FTP_CMD}/$2  -T $1"
-}
-
 
 # Скажем так, это своеобразный метод "для перегрузки",
 # т.е. можно поменять реализацию и экспортировать хоть MySQL, хоть Oracle
