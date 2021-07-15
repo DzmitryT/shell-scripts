@@ -35,6 +35,13 @@ FTP_DIR="$(hostname)"
 # Количество бэкапов в стеке. При "0" ротация выключена
 FTP_BACKUPS_CNT="0"
 
+# Префикс для всех FTP-операций, для исключения дублирования кода
+# Если вдруг захочется сделать авторизацию через .netrc останется
+# добавить один IF
+function ftpCommandPrefix() {
+    echo "${CURL_CMD} --user ${FTP_USER}:${FTP_PASS} ftp://${FTP_HOST}/${FTP_DIR}/";
+}
+
 # Функция подсчета количества файлов по заданной маске
 # На вход принимает 2 параметра, в контексте функции
 # они приходят в переменные $1, $2
@@ -103,12 +110,12 @@ function createLocalBackupDir() {
 }
 
 function createRemoteBackupDir() {
-  FTPCMD="${CURL_CMD} --user ${FTP_USER}:${FTP_PASS} ftp://${FTP_HOST}/${FTP_DIR}/"
-  eval "${FTPCMD} --head 2>/dev/null"
+  FTP_CMD="$(ftpCommandPrefix)"
+  eval "${FTP_CMD} --head 2>/dev/null"
   # Directory not exists
   if [ $? -ne 0 ]; then
     # Create directory
-    eval "${FTPCMD} --ftp-create-dirs 2>/dev/null"
+    eval "${FTP_CMD} --ftp-create-dirs 2>/dev/null"
     if [ $? -ne  0 ]; then
       return 1
     fi
@@ -156,8 +163,9 @@ function uploadViaCURL() {
   if [ -z "$1" ] || [ -z "$2" ]; then
     exit 1
   fi
-  FTPCMD="${CURL_CMD} ftp://${FTP_HOST}/${FTP_DIR}/$2"
-  eval "${FTPCMD} -T $1 --user ${FTP_USER}:${FTP_PASS}"
+
+  FTP_CMD="$(ftpCommandPrefix)"
+  eval "${FTP_CMD}/$2  -T $1"
 }
 
 
