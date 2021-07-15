@@ -81,7 +81,7 @@ function delOlderFile() {
 # возвращает 1 при удачном завершении
 function createLocalBackupDir() {
   # Если параметр пустой - ничего не делаем
-  if [ ! -z "$1" ]; then
+  if [ -n "$1" ]; then
     # Проверяем - существует ли директория
     # При необходимости - создаем
     if [ ! -d "$1" ]; then
@@ -126,7 +126,7 @@ function processFTPBackup() {
   if [ -f "$1" ] && [ "$FTPBACKUP" = "true" ]; then
     createRemoteBackupDir
     if (($? == 0)); then
-      uploadViaCURL $1 $2
+      uploadViaCURL "$1" "$2"
     else
       exit 1
     fi
@@ -168,12 +168,12 @@ function dumpDB() {
   DUMPCMD="$DUMPCMD -d$DBNAME"
 
   # Логин
-  if [ ! -z "$DBUSER" ]; then
+  if [ -n "$DBUSER" ]; then
     DUMPCMD="$DUMPCMD --u$DBUSER"
   fi
 
   # Пароль
-  if [ ! -z "$DBPASS" ]; then
+  if [ -n "$DBPASS" ]; then
     DUMPCMD="$DUMPCMD -p$DBPASS"
   fi
 
@@ -194,7 +194,7 @@ function dumpDB() {
     # Функции в bash - не совсем функции.
     # Комманда return возвращает не результат выполнения, а "код ошибки"
     # Поэтому, чтобы получить искомое число перехватываем STDERROR
-    countFilesByMask $EXPORT_PREFIX "^"$BACKUP_NAME$DATE_REGEXP$FEXT"$"
+    countFilesByMask "${EXPORT_PREFIX}" "^${BACKUP_NAME}${DATE_REGEXP}${FEXT}$"
     funcres="$?"
 
     # Проверяем, не вышли ли мы за размер стэка бэкапов
@@ -210,7 +210,7 @@ function dumpDB() {
   eval "${DUMPCMD} --out ${OUTPUT}"
 
   # Архивируем и удаляем директорию
-  if [ -d "$OUTPUT" ] && [ ! -z "$(ls $OUTPUT)" ]; then
+  if [ -d "$OUTPUT" ] && [ -n "$(ls $OUTPUT)" ]; then
     # Чтобы tar не строил в архиве полное дерево каталогов
     eval "tar $TARCMD $OUTPUT$FEXT -C $EXPORT_PREFIX $BACKUP_NAME$TODAY  && rm -rf $OUTPUT"
     processFTPBackup "${OUTPUT}${FEXT}" "${BACKUP_NAME}${TODAY}${FEXT}"
@@ -296,7 +296,7 @@ fi
 
 TMP_EXPORT_PATH=""
 # Создаем иерархию каталогов экспорта (если нужно)
-if [ ! -z "$EXPORT_SUBDIR" ]; then
+if [ -n "$EXPORT_SUBDIR" ]; then
   TMP_EXPORT_PATH="${EXPORT_PREFIX}/${EXPORT_SUBDIR}"
 else
   TMP_EXPORT_PATH="${EXPORT_PREFIX}"
