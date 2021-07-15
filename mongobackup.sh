@@ -63,7 +63,7 @@ function ftpGetFilesList() {
 
 # $1 - регулярное выражение для филтрации файлов
 function ftpCountFiles() {
-  ftpGetFilesList | grep -c "$1"
+  ftpGetFilesList | grep -cE "$1"
 }
 
 # Заливаем файл на FTP. Функция принимает 2 параметра, т.к. некоторые FTP-сервера
@@ -122,6 +122,23 @@ function findOlderFileInList() {
   done
   # Получили имя самого старого файла. Возвращаем
   echo "${OLDER_FILE_NAME}"
+}
+
+# Ротация локальных бэкапов бэкапов
+# $1 - шаблон имени файла
+# $2 - расширение
+function rotateRemoteBackups() {
+  if [ $FTP_BACKUPS_CNT -gt 0 ]; then
+    local CNT=$(ftpCountFiles "^${1}${DATE_REGEXP}${2}$")
+    # Проверяем, не вышли ли мы за размер стэка бэкапов
+    if [ "${CNT}" -ge "${FTP_BACKUPS_CNT}" ]; then
+     local LINES=$(ftpGetFilesList);
+     local OLD_FILE=$(findOlderFileInList "${LINES}")
+     if [ -n "${OLD_FILE}" ]; then
+       ftpRemoveFile "${OLD_FILE}";
+     fi;
+    fi
+  fi
 }
 
 # Ротация локальных бэкапов бэкапов
@@ -248,7 +265,7 @@ function dumpDB() {
   # Формируем имя по принципу хост_база
   BACKUP_NAME="$(hostname)_${DBNAME}_"
 
-  # Ротация бэкапов
+  # Ротация локальных бэкапов
   rotateLocalBackups "${BACKUP_NAME}" "${FEXT}"
 
   # Монго экспортирует базу в директорию, т.к. дамп содержит несколько файлов
@@ -261,6 +278,9 @@ function dumpDB() {
   if [ -d "$OUTPUT" ] && [ -n "$(ls $OUTPUT)" ]; then
     # Чтобы tar не строил в архиве полное дерево каталогов
     eval "tar $TARCMD $OUTPUT$FEXT -C $EXPORT_PREFIX $BACKUP_NAME$TODAY  && rm -rf $OUTPUT"
+    # Ротация удаленных локальных бэкапов
+    rotateRemoteBackups "${BACKUP_NAME}" "${FEXT}"
+    # Загрузка бэкапов на FTP
     processFTPBackup "${OUTPUT}${FEXT}" "${BACKUP_NAME}${TODAY}${FEXT}"
   fi
 }
@@ -279,6 +299,7 @@ function printUsage() {
   echo "  [--ftp-user to override FTP login]"
   echo "  [--ftp-pass to override FTP password]"
   echo "  [--ftp-prefix to override default FTP backup directory]"
+  echo "  [--ftp-rotate to enable FTP bsckup rotation with default stack size of 20 files]"
 }
 
 # Обрабатываем входные параметры скрипта
@@ -314,7 +335,9 @@ for index in ${!args[*]}; do
     FTP_DIR="${args[$index + 1]}"
     ;;
   "--ftp-rotate")
-    FTP_BACKUPS_CNT="${args[$index + 1]}"
+      if [ $FTP_BACKUPS_CNT -eq 0 ]; then
+        FTP_BACKUPS_CNT="20";
+      fi;
     ;;
   "--rotate" | "-r")
       if [ $BACKUPS_CNT -eq 0 ]; then
