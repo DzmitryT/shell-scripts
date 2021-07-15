@@ -69,6 +69,11 @@ function ftpUploadFile() {
 # Удаляем файл на FTP-сервере. Используется при ротации бэкапов
 # $1 - имя файла на удаленном сервере
 function ftpRemoveFile() {
+  # Проверяем, что имя файла не пустое
+  if [ -z "$1" ]; then
+    return 1;
+  fi;
+
   FTP_CMD="$(ftpCommandPrefix) --silent -Q '-DELE $1'"
   eval "${FTP_CMD}"
   if [ $? -ne 0 ]; then
