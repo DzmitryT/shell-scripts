@@ -88,15 +88,15 @@ function createLocalBackupDir() {
       # Типа аналог try-catch - весь вывод в /dev/null и ловим код ошибки
       mkdir -p "$1" 2>/dev/null
       if (($? == 0)); then
-        return 1
-      else
         return 0
+      else
+        return 1
       fi
     else
-      return 1
+      return 0
     fi
   else
-    return 0
+    return 1
   fi
 }
 
@@ -105,15 +105,15 @@ function createRemoteBackupDir() {
   eval "${FTPCMD} --head 2>/dev/null"
   # Directory exists
   if (($? == 0)); then
-    return 1
+    return 0
   else
     # Create if not exists
     eval "${FTPCMD} --ftp-create-dirs -Q '-MKD /${FTPDIR}' 2>/dev/null"
     if (($? == 0)); then
-      return 1
+      return 0
     fi
   fi
-  return 0
+  return 1
 }
 
 # $1 - local file full path
@@ -125,7 +125,7 @@ function processFTPBackup() {
   # Заливаем на FTP
   if [ -f "$1" ] && [ "$FTPBACKUP" = "true" ]; then
     createRemoteBackupDir
-    if (($? == 1)); then
+    if (($? == 0)); then
       uploadViaCURL $1 $2
     else
       exit 1
@@ -303,7 +303,7 @@ else
 fi
 
 createLocalBackupDir "${TMP_EXPORT_PATH}"
-if (($? == 1)); then
+if (($? == 0)); then
   EXPORT_PREFIX="${TMP_EXPORT_PATH}"
 else
   echo "Destination directory '${TMP_EXPORT_PATH}' was not created!"
