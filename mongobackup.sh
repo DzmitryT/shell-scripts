@@ -101,19 +101,17 @@ function createLocalBackupDir() {
 }
 
 function createRemoteBackupDir() {
-  FTPCMD="${CURL_CMD} ftp://${FTPHOST}/${FTPDIR}/ --user ${FTPUSER}:${FTPPASS}"
+  FTPCMD="${CURL_CMD} --user ${FTPUSER}:${FTPPASS} ftp://${FTPHOST}/${FTPDIR}/"
   eval "${FTPCMD} --head 2>/dev/null"
-  # Directory exists
-  if (($? == 0)); then
-    return 0
-  else
-    # Create if not exists
-    eval "${FTPCMD} --ftp-create-dirs -Q '-MKD /${FTPDIR}' 2>/dev/null"
-    if (($? == 0)); then
-      return 0
+  # Directory not exists
+  if [ $? -ne 0 ]; then
+    # Create directory
+    eval "${FTPCMD} --ftp-create-dirs 2>/dev/null"
+    if [ $? -ne  0 ]; then
+      return 1
     fi
   fi
-  return 1
+  return 0
 }
 
 # $1 - local file full path
