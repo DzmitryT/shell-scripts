@@ -20,6 +20,19 @@ BACKUPS_CNT="0"
 TODAY="$(date +%d.%m.%Y)"
 # Формат даты в регекспе
 DATE_REGEXP='[0-9]{2}.[0-9]{2}.[0-9]{4}'
+# Скрипт на AWK для переформатирования даты
+# предполагает наличие в имнеи файла даты и времени (дд.мм.гггг-ЧЧ24.Мин)
+AWK_CMD='{ if (index($0,"-") > 0) {
+             split($0,parts,"-");
+             dpart=parts[1];
+             tpart=parts[2];
+          } else {
+             dpart=$0;
+             tpart="";
+          }
+             split(dpart,dparts,".");
+             printf("%02d/%02d/%02d %s\n",dparts[2],dparts[1],dparts[3],gensub(/\./,":","g",tpart));
+        }'
 
 # Настройки для FTP:
 # нужно ли бэкап заливать на FTP
@@ -71,17 +84,61 @@ function ftpUploadFile() {
 function ftpRemoveFile() {
   # Проверяем, что имя файла не пустое
   if [ -z "$1" ]; then
-    return 1;
-  fi;
+    return 1
+  fi
 
   FTP_CMD="$(ftpCommandPrefix) --silent -Q '-DELE $1'"
   eval "${FTP_CMD}"
   if [ $? -ne 0 ]; then
-    return 1;
-  fi;
-    return 0;
+    return 1
+  fi
+  return 0
 }
 
+# Преобразуем дату в имени файла из формата DATE_REGEXP
+# в данном случае "дд.мм.гггг" в Unix Timestamp
+function filenameToUnixTime() {
+  echo "$1" | grep -oE "${DATE_REGEXP}" | awk "${AWK_CMD}" | xargs -I{} date -d "{}" +%s
+}
+
+# Функция ищет и  самый старый файл в списке на основании даты в имени файла.
+# На вход принимает список файлов
+function findOlderFileInList() {
+  # Резервируем переменную для результата
+  local OLDER_FILE_NAME=""
+  # Маленький грязный хак - получаем текущее время в виде Unix timestamp
+  # Надо ведь с чем-то сравнивать даты в файлах
+  local TIMESTAMP=$(date "+%s")
+
+  for LINE in $1; do
+    # Дата у нас в человекопонятном формате,
+    # Сравнивать будем секунды, прошедшие с начала эпохи юникс
+    local FILE_TIMESTAMP=$(filenameToUnixTime "${LINE}")
+    # Если файл старше предыдущего
+    if [ "${FILE_TIMESTAMP}" -le "${TIMESTAMP}" ]; then
+      TIMESTAMP="${FILE_TIMESTAMP}"
+      OLDER_FILE_NAME="${LINE}"
+    fi
+  done
+  # Получили имя самого старого файла. Возвращаем
+  echo "${OLDER_FILE_NAME}"
+}
+
+# Ротация локальных бэкапов бэкапов
+# $1 - шаблон имени файла
+# $2 - расширение
+function rotateLocalBackups() {
+  if [ $BACKUPS_CNT -gt 0 ]; then
+    # Функции в bash - не совсем функции.
+    # Комманда return возвращает не результат выполнения, а "код ошибки"
+    # Поэтому, чтобы получить искомое число перехватываем STDERROR
+    countFilesByMask "${EXPORT_PREFIX}" "^${1}${DATE_REGEXP}${2}$"
+    # Проверяем, не вышли ли мы за размер стэка бэкапов
+    if [ $? -ge $BACKUPS_CNT ]; then
+      removeOlderLocalFile "^${1}${DATE_REGEXP}${2}$"
+    fi
+  fi
+}
 
 # Функция подсчета количества файлов по заданной маске
 # На вход принимает 2 параметра, в контексте функции
@@ -91,39 +148,17 @@ function countFilesByMask() {
     echo "[WARN][countFilesByMask]: wrong or empty parameter passed! Please check your configuration!"
     exit -1
   else
-    return $(find "$1" -maxdepth 1 -type f -printf "%f\n" | grep -c "$2")
+    return $(find "$1" -maxdepth 1 -type f -printf "%f\n" | grep -cE "$2")
   fi
 }
 
 # Функция ищет и удаляет самый старый файл в каталоге экспорта
-# Используется дата в имени файла. На вход принимает 3 параметра
-# в случае ошибки возвращает 0, при положительном результате 1
-function delOlderFile() {
-  # Маленький грязный хак - получаем текущее время в виде Unix timestamp
-  # Надо ведь с чем-то сравнивать даты в файлах
-  unixtime=$(date "+%s")
-  # Резервируем переменную для результата
-  olderfile=""
-  # Ищем файлы бэкапов
-  local lines=$(find "$1" -maxdepth 1 -type f -printf "%f\n" | grep "$2")
-  for line in $lines; do
-    # Дата у нас в привычном русском формате,
-    # а сравнивать будем секунды, прошедшие с начала эпохи юникс
-    # Разбиваем текущую строку на элементы
-    filedate=$(echo $line | grep -o "$3")
-    # Не красиво, но надо дату из формата dd.mm.yyyy перегнать в mm/dd/yyyy
-    # чтобы отдать на вход date -d, для этого разбиваем строку в массив,
-    # заменяя "." на "\n". Переменная - local, чтобы нигде никому не мешала
-    local dp=($(echo $filedate | tr "." "\n"))
-    local filetime=$(date -d ${dp[1]}/${dp[0]}/${dp[2]} "+%s")
-    # Получаем имя файла для самого старого бэкапа
-    if [ $filetime -le $unixtime ]; then
-      unixtime=$filetime
-      olderfile=$line
-    fi
-  done
+# На вход принимает регулярное выражение для grep
+function removeOlderLocalFile() {
+  local LINES=$(find "${EXPORT_PREFIX}" -maxdepth 1 -type f -printf "%f\n" | grep -E "$1")
+  findOlderFileInList "${LINES}";
   # Получили имя самого старого файла. Можно удалять.
-  rm $1"/"$olderfile
+  #rm $1"/"$olderfile
 }
 
 # Функция создания пути экспорта, если он не сушествует
@@ -210,18 +245,7 @@ function dumpDB() {
   BACKUP_NAME="$(hostname)_${DBNAME}_"
 
   # Ротация бэкапов
-  if [ $BACKUPS_CNT -gt 0 ]; then
-    # Функции в bash - не совсем функции.
-    # Комманда return возвращает не результат выполнения, а "код ошибки"
-    # Поэтому, чтобы получить искомое число перехватываем STDERROR
-    countFilesByMask "${EXPORT_PREFIX}" "^${BACKUP_NAME}${DATE_REGEXP}${FEXT}$"
-    funcres="$?"
-
-    # Проверяем, не вышли ли мы за размер стэка бэкапов
-    if [ $funcres -ge $BACKUPS_CNT ]; then
-      delOlderFile $EXPORT_PREFIX "^"$BACKUP_NAME$DATE_REGEXP$FEXT"$" $DATE_REGEXP
-    fi
-  fi
+  rotateLocalBackups "${BACKUP_NAME}" "${FEXT}"
 
   # Монго экспортирует базу в директорию, т.к. дамп содержит несколько файлов
   OUTPUT="${EXPORT_PREFIX}/${BACKUP_NAME}${TODAY}"
